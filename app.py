@@ -1,36 +1,45 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import base64
-import cv2
-import numpy as np
+import io
+from PIL import Image
 import pytesseract
-import re
 
 app = Flask(__name__)
+CORS(app)  # ✅ This line enables cross-origin requests
 
-@app.route('/ocr', methods=['POST'])
+@app.route("/")
+def home():
+    return "OCR API is working"
+
+@app.route("/ocr", methods=["POST"])
 def ocr():
+    data = request.get_json()
+
+    if not data or "image" not in data:
+        return jsonify({"error": "No image provided"}), 400
+
     try:
-        data = request.json['image']
-        _, encoded = data.split(",", 1)
-        img_data = base64.b64decode(encoded)
-        np_img = np.frombuffer(img_data, np.uint8)
-        img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+        base64_image = data["image"].split(",")[1]
+        image_data = base64.b64decode(base64_image)
+        image = Image.open(io.BytesIO(image_data))
+        text = pytesseract.image_to_string(image)
 
-        text = pytesseract.image_to_string(img)
+        # Basic parsing logic (adjust as needed)
+        lines = text.strip().split("\n")
+        lines = [line.strip() for line in lines if line.strip()]
+        if not lines:
+            return jsonify({"name": "", "qty": 0})
 
-        # Very basic detection of medicine name and quantity
-        match = re.search(r'([A-Za-z0-9]+)[^\n]*[xX*]\s*(\d+)', text)
-        if match:
-            name = match.group(1)
-            qty = int(match.group(2))
-        else:
-            name, qty = "Unknown", 0
+        # Very basic: first line = name, last number = qty
+        name = lines[0]
+        qty = 1
+        for word in reversed(lines[-1].split()):
+            if word.isdigit():
+                qty = int(word)
+                break
 
         return jsonify({"name": name, "qty": qty})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route('/')
-def index():
-    return "OCR API is running!"
